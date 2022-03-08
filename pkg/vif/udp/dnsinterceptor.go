@@ -99,7 +99,7 @@ func (h *dnsInterceptor) tunToConn(ctx context.Context, wg *sync.WaitGroup) {
 			for n := 0; n < pn; {
 				wn, err := h.dnsConn.Write(payload[n:])
 				if err != nil && ctx.Err() == nil {
-					dlog.Errorf(ctx, "!! DNS %s, failed to write TCP: %v", h.id, err)
+					dlog.Errorf(ctx, "!! DNS %s, failed to write UDP: %v", h.id, err)
 				}
 				n += wn
 			}

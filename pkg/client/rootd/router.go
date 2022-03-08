@@ -172,7 +172,11 @@ func (s *session) tcp(c context.Context, pkt tcp.Packet) {
 	}
 
 	wf, _, err := s.handlers.GetOrCreate(c, connID, func(c context.Context, remove func()) (tunnel.Handler, error) {
-		return tcp.NewHandler(s.streamCreator(connID), &s.closing, vifWriter{s.dev}, connID, remove, s.rndSource), nil
+		w := vifWriter{s.dev}
+		if s.isForDNS(ipHdr.Destination(), tcpHdr.DestinationPort()) {
+			return tcp.NewHandler(s.proxyCreator(connID), &s.closing, w, connID, remove, s.rndSource), nil
+		}
+		return tcp.NewHandler(s.streamCreator(connID), &s.closing, w, connID, remove, s.rndSource), nil
 	})
 	if err != nil {
 		dlog.Error(c, err)
@@ -214,6 +218,19 @@ func (s *session) streamCreator(id tunnel.ConnID) tcp.StreamCreator {
 		if err != nil {
 			return nil, err
 		}
+		tc := client.GetConfig(c).Timeouts
+		return tunnel.NewClientStream(c, ct, id, s.session.SessionId, tc.Get(client.TimeoutRoundtripLatency), tc.Get(client.TimeoutEndpointDial))
+	}
+}
+
+func (s *session) proxyCreator(id tunnel.ConnID) tcp.StreamCreator {
+	return func(c context.Context) (tunnel.Stream, error) {
+		dlog.Debugf(c, "Opening DNS proxy for id %s", id)
+		conn, err := net.DialTCP("tcp", id.SourceAddr().(*net.TCPAddr), id.DestinationAddr().(*net.TCPAddr))
+		if err != nil {
+			return nil, err
+		}
+		ct := tcp.NewProxy(conn)
 		tc := client.GetConfig(c).Timeouts
 		return tunnel.NewClientStream(c, ct, id, s.session.SessionId, tc.Get(client.TimeoutRoundtripLatency), tc.Get(client.TimeoutEndpointDial))
 	}
