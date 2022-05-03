@@ -770,6 +770,9 @@ func (is *interceptState) runInDocker(ctx context.Context, cmd safeCobraCommand,
 	if !hasArg("--name") {
 		ourArgs = append(ourArgs, "--name", fmt.Sprintf("intercept-%s-%d", is.args.name, is.localPort))
 	}
+	if !hasArg("--rm") {
+		ourArgs = append(ourArgs, "--rm")
+	}
 
 	if is.dockerPort != 0 {
 		ourArgs = append(ourArgs, "-p", fmt.Sprintf("%d:%d", is.localPort, is.dockerPort))
