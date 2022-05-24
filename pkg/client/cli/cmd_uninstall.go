@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/spf13/cobra"
+	empty "google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/telepresenceio/telepresence/rpc/v2/connector"
+	"github.com/telepresenceio/telepresence/v2/pkg/client"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cache"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/cli/cliutil"
 	"github.com/telepresenceio/telepresence/v2/pkg/client/errcat"
@@ -62,6 +64,7 @@ func (u *uninstallInfo) run(cmd *cobra.Command, args []string) error {
 			UninstallType: 0,
 			Namespace:     u.namespace,
 		}
+
 		switch {
 		case u.agent:
 			ur.UninstallType = connector.UninstallRequest_NAMED_AGENTS
@@ -70,6 +73,30 @@ func (u *uninstallInfo) run(cmd *cobra.Command, args []string) error {
 			ur.UninstallType = connector.UninstallRequest_ALL_AGENTS
 		default:
 			ur.UninstallType = connector.UninstallRequest_EVERYTHING
+			// Ensure that the user is logged out of the system before uninstalling. We don't want
+			// to install the enhanced free client if it is missing or needs an upgrade.
+			_, _ = cs.userD.Logout(ctx, &empty.Empty{})
+			var userDBin string
+			err := client.UpdateConfig(ctx, func(cfg *client.Config, _ string) (bool, error) {
+				if userDBin = cfg.Daemons.UserDaemonBinary; userDBin == "" {
+					return false, nil
+				}
+				cfg.Daemons.UserDaemonBinary = ""
+				return true, nil
+			})
+			if err != nil {
+				return err
+			}
+
+			if userDBin != "" {
+				// Restore config when we're done. We uninstall from the cluster, not the client.
+				defer func() {
+					_ = client.UpdateConfig(ctx, func(cfg *client.Config, _ string) (bool, error) {
+						cfg.Daemons.UserDaemonBinary = userDBin
+						return true, nil
+					})
+				}()
+			}
 		}
 		r, err := cs.userD.Uninstall(ctx, ur)
 		if err != nil {
@@ -97,13 +124,6 @@ func (u *uninstallInfo) run(cmd *cobra.Command, args []string) error {
 }
 
 func removeClusterFromUserCache(ctx context.Context, connInfo *connector.ConnectInfo) (err error) {
-	// Login token is affined to the traffic-manager that just got removed. The user-info
-	// in turn, is info obtained using that token so both are removed here as a
-	// consequence of removing the manager.
-	if err := cliutil.EnsureLoggedOut(ctx); err != nil {
-		return err
-	}
-
 	// Delete the ingress info for the cluster if it exists.
 	ingresses, err := cache.LoadIngressesFromUserCache(ctx)
 	if err != nil {
