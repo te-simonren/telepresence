@@ -946,3 +946,30 @@ func LoadConfig(c context.Context) (cfg *Config, err error) {
 
 	return cfg, nil
 }
+
+func UpdateConfig(ctx context.Context, updateFunc func(*Config, string) (bool, error)) error {
+	cfg := GetConfig(ctx)
+	cfgFile := GetConfigFile(ctx)
+	updated, err := updateFunc(cfg, cfgFile)
+	if !updated {
+		return nil
+	}
+
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return errcat.NoDaemonLogs.Newf("error marshaling updating config: %w", err)
+	}
+	if s, err := os.Stat(cfgFile); err == nil && s.Size() > 0 {
+		_ = os.Rename(cfgFile, cfgFile+".bak")
+	}
+
+	f, err := os.OpenFile(cfgFile, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return errcat.NoDaemonLogs.Newf("error opening config file: %w", err)
+	}
+	defer f.Close()
+	if _, err = f.Write(b); err != nil {
+		return errcat.NoDaemonLogs.Newf("error writing config file: %w", err)
+	}
+	return nil
+}

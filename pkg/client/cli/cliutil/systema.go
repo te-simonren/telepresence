@@ -15,7 +15,6 @@ import (
 	grpcCodes "google.golang.org/grpc/codes"
 	grpcStatus "google.golang.org/grpc/status"
 	empty "google.golang.org/protobuf/types/known/emptypb"
-	"gopkg.in/yaml.v2"
 
 	"github.com/datawire/dlib/dlog"
 	"github.com/telepresenceio/telepresence/rpc/v2/connector"
@@ -315,34 +314,16 @@ func downloadProDaemon(ctx context.Context, downloadURL string, from io.Reader, 
 // updateConfig updates the userDaemonBinary in the config to point to
 // telProLocation. Users should be asked for permission before this is done.
 func updateConfig(ctx context.Context, telProLocation string) error {
-	cfg := client.GetConfig(ctx)
-	if cfg.Daemons.UserDaemonBinary == telProLocation {
-		return nil
-	}
-
-	cfgFile := client.GetConfigFile(ctx)
-	if cfg.Daemons.UserDaemonBinary == "" {
-		dlog.Infof(ctx, "Updating %s, setting Daemons.UserDaemonBinary to %s", cfgFile, telProLocation)
-	} else {
-		dlog.Infof(ctx, "Updating %s, changing Daemons.UserDaemonBinary from %s to %s", cfgFile, cfg.Daemons.UserDaemonBinary, telProLocation)
-	}
-
-	cfg.Daemons.UserDaemonBinary = telProLocation
-	b, err := yaml.Marshal(cfg)
-	if err != nil {
-		return errcat.NoDaemonLogs.Newf("error marshaling updating config: %w", err)
-	}
-	if s, err := os.Stat(cfgFile); err == nil && s.Size() > 0 {
-		_ = os.Rename(cfgFile, cfgFile+".bak")
-	}
-
-	f, err := os.OpenFile(cfgFile, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errcat.NoDaemonLogs.Newf("error opening config file: %w", err)
-	}
-	defer f.Close()
-	if _, err = f.Write(b); err != nil {
-		return errcat.NoDaemonLogs.Newf("error writing config file: %w", err)
-	}
-	return nil
+	return client.UpdateConfig(ctx, func(cfg *client.Config, cfgFile string) (bool, error) {
+		if cfg.Daemons.UserDaemonBinary == telProLocation {
+			return false, nil
+		}
+		if cfg.Daemons.UserDaemonBinary == "" {
+			dlog.Infof(ctx, "Updating %s, setting Daemons.UserDaemonBinary to %s", cfgFile, telProLocation)
+		} else {
+			dlog.Infof(ctx, "Updating %s, changing Daemons.UserDaemonBinary from %s to %s", cfgFile, cfg.Daemons.UserDaemonBinary, telProLocation)
+		}
+		cfg.Daemons.UserDaemonBinary = telProLocation
+		return true, nil
+	})
 }
